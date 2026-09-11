@@ -7,6 +7,7 @@ const {
 const qrcode = require('qrcode-terminal');
 const axios = require('axios');
 
+// Webhook original de Apps Script para Asistencia + Hoteles
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyRY5VDZFm3EgSmeMFec6DyDE5X2-Jsv26KZn8iya7OPbrmoNxz-Z2ByuBnGTXF3zXS/exec';
 const ID_GRUPO_LAVAARTE = '120363044348453055@g.us';
 
@@ -40,16 +41,40 @@ const HOTELES_CANAL = {
   'almacen': 'ALMACÉN CENTRAL'
 };
 
+// PREVENIR QUE CUALQUIER ERROR TUMBE EL SERVICIO EN RAILWAY
+process.on('uncaughtException', (err) => {
+  console.log('⚠️ [PREVENCIÓN] Error mitigado:', err.message);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.log('⚠️ [PREVENCIÓN] Rechazo mitigado:', reason);
+});
+
 async function iniciarBot() {
-  const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
-  const { version } = await fetchLatestBaileysVersion();
+  console.log('🔄 Inicializando cliente Baileys...');
+  
+  // Usamos auth_info_baileys_v2 para descartar la sesión anterior corrupta
+  const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys_v2');
+  let version;
+  try {
+    const v = await fetchLatestBaileysVersion();
+    version = v.version;
+  } catch (e) {
+    version = [2, 3000, 1015901307];
+  }
 
   const sock = makeWASocket({
     version,
     auth: state,
     printQRInTerminal: false,
     browser: ['Lavaarte OS', 'Chrome', '1.0.0'],
-    syncFullHistory: false
+    syncFullHistory: false,
+    markOnlineOnConnect: false,
+    generateHighQualityLinkPreview: false,
+    defaultQueryTimeoutMs: 60000,
+    connectTimeoutMs: 60000,
+    keepAliveIntervalMs: 25000,
+    shouldIgnoreJid: () => false
   });
 
   sock.ev.on('creds.update', saveCreds);
@@ -58,18 +83,26 @@ async function iniciarBot() {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
-      console.log('\n--- ESCANEA ESTE CÓDIGO QR ---');
+      console.log('\n======================================================');
+      console.log('📱 ESCANEA ESTE CÓDIGO QR CON EL WHATSAPP DE LA EMPRESA:');
+      console.log('======================================================\n');
       qrcode.generate(qr, { small: true });
     }
 
     if (connection === 'close') {
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       const debeReconectar = statusCode !== DisconnectReason.loggedOut;
-      if (debeReconectar) setTimeout(() => iniciarBot(), 3000);
+      console.log(`🔌 Conexión cerrada (Código: ${statusCode}). Reconectando: ${debeReconectar}`);
+      if (debeReconectar) {
+        setTimeout(() => iniciarBot(), 4000);
+      } else {
+        console.log('❌ Sesión cerrada permanentemente. Se requerirá nuevo escaneo de QR.');
+        setTimeout(() => iniciarBot(), 5000);
+      }
     } else if (connection === 'open') {
       console.log('\n======================================================');
       console.log('🛡️ PUENTE LAVAARTE ACTIVO - NÓMINA + LOGÍSTICA HOTELES');
-      console.log(`Canal exclusivo: ${ID_GRUPO_LAVAARTE}`);
+      console.log(`📡 Escuchando exclusivamente en: ${ID_GRUPO_LAVAARTE}`);
       console.log('======================================================\n');
     }
   });
@@ -77,7 +110,7 @@ async function iniciarBot() {
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return;
     const m = messages[0];
-    if (!m.message) return;
+    if (!m || !m.message) return;
 
     const jid = m.key.remoteJid;
     if (jid !== ID_GRUPO_LAVAARTE) return;
@@ -145,10 +178,10 @@ async function iniciarBot() {
       const esSalida = ['salida', 'saliendo', 'me voy', 'despachado', 'fin', 'termino', 'terminamos', 'finaliza', 'finalizada'].some(p => textoNorm.includes(p));
       const tipoEvento = esSalida ? "SALIDA" : "LLEGADA";
 
-      console.log(`🏨 Logística/Ruta: [${hotelDetectado}] | ${tipoEvento} | Hora: ${horaCalculada} | Por: ${pushName}`);
+      console.log(`🏨 [LOGÍSTICA] Hotel: ${hotelDetectado} | ${tipoEvento} | Hora: ${horaCalculada} | Conductor: ${pushName}`);
 
       try {
-        await axios.post(APPS_SCRIPT_URL, {
+        const resH = await axios.post(APPS_SCRIPT_URL, {
           canal: "LOGISTICA_HOTELES",
           hotel: hotelDetectado,
           tipo: tipoEvento,
@@ -157,9 +190,10 @@ async function iniciarBot() {
           telefono: remitenteTel,
           push_name: pushName,
           mensaje_raw: texto
-        });
+        }, { timeout: 20000 });
+        console.log('✅ Logística enviada a Sheets:', resH.data);
       } catch (err) {
-        console.error('Error enviando logística:', err.message);
+        console.error('❌ Error enviando logística:', err.message);
       }
       return;
     }
@@ -196,10 +230,10 @@ async function iniciarBot() {
     }
 
     const obs = `Marcaje WhatsApp (${pushName}) | "${texto}"`;
-    console.log(`👤 Asistencia: ${tipoMov} | Hora: ${horaCalculada} | Cel: ${remitenteTel} | CodManual: ${codigoManual || 'N/A'}`);
+    console.log(`👤 [ASISTENCIA] ${tipoMov} | Hora: ${horaCalculada} | Cel: ${remitenteTel} | Cod: ${codigoManual || 'N/A'}`);
 
     try {
-      await axios.post(APPS_SCRIPT_URL, {
+      const resN = await axios.post(APPS_SCRIPT_URL, {
         canal: "NOMINA",
         telefono: remitenteTel,
         codigo_manual: codigoManual,
@@ -209,9 +243,10 @@ async function iniciarBot() {
         hora: horaCalculada,
         fecha: fechaCalculada,
         observaciones: obs
-      });
+      }, { timeout: 20000 });
+      console.log('✅ Asistencia enviada a Sheets:', resN.data);
     } catch (err) {
-      console.error('Error enviando nómina:', err.message);
+      console.error('❌ Error enviando nómina:', err.message);
     }
   });
 }
