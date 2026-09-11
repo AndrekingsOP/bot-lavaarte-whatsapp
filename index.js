@@ -7,7 +7,7 @@ const {
 const qrcode = require('qrcode-terminal');
 const axios = require('axios');
 
-// Webhook original de Apps Script para Asistencia + Hoteles
+// Webhook oficial de Apps Script para Asistencia + Logística Hoteles
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyRY5VDZFm3EgSmeMFec6DyDE5X2-Jsv26KZn8iya7OPbrmoNxz-Z2ByuBnGTXF3zXS/exec';
 const ID_GRUPO_LAVAARTE = '120363044348453055@g.us';
 
@@ -41,7 +41,7 @@ const HOTELES_CANAL = {
   'almacen': 'ALMACÉN CENTRAL'
 };
 
-// PREVENIR QUE CUALQUIER ERROR TUMBE EL SERVICIO EN RAILWAY
+// BLINDAJE PARA QUE NINGÚN ERROR DE SOCKET APAGUE EL CONTENEDOR
 process.on('uncaughtException', (err) => {
   console.log('⚠️ [PREVENCIÓN] Error mitigado:', err.message);
 });
@@ -53,7 +53,6 @@ process.on('unhandledRejection', (reason) => {
 async function iniciarBot() {
   console.log('🔄 Inicializando cliente Baileys...');
   
-  // Usamos auth_info_baileys_v2 para descartar la sesión anterior corrupta
   const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys_v2');
   let version;
   try {
@@ -83,8 +82,10 @@ async function iniciarBot() {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
+      const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(qr)}`;
       console.log('\n======================================================');
-      console.log('📱 ESCANEA ESTE CÓDIGO QR CON EL WHATSAPP DE LA EMPRESA:');
+      console.log('📱 CÓDIGO QR GENERADO (ÁBRELO EN TU NAVEGADOR):');
+      console.log('🔗 ENLACE DIRECTO: ' + qrImageUrl);
       console.log('======================================================\n');
       qrcode.generate(qr, { small: true });
     }
@@ -96,7 +97,7 @@ async function iniciarBot() {
       if (debeReconectar) {
         setTimeout(() => iniciarBot(), 4000);
       } else {
-        console.log('❌ Sesión cerrada permanentemente. Se requerirá nuevo escaneo de QR.');
+        console.log('❌ Sesión cerrada permanentemente. Generando nuevo código QR...');
         setTimeout(() => iniciarBot(), 5000);
       }
     } else if (connection === 'open') {
@@ -125,7 +126,7 @@ async function iniciarBot() {
       .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
       .trim();
 
-    // 1. FILTRO DE EXCLUSIÓN TOTAL
+    // 1. FILTRO DE EXCLUSIÓN TOTAL (IGNORAR PAUSAS Y MENSAJES OPERATIVOS)
     if (textoNorm.includes('almuerzo') || textoNorm.includes('almorzar') || textoNorm.includes('organizar') || textoNorm.includes('cerrar caja') || textoNorm.includes('entregarla')) {
       return;
     }
