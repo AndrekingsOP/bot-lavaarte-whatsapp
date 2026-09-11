@@ -1,0 +1,14 @@
+{
+  "name": "bot-lavaarte-whatsapp",
+  "version": "1.0.0",
+  "description": "Bot WhatsApp Lavaarte SAS - Nómina y Logística",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.6.0",
+    "axios": "^1.7.2",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
