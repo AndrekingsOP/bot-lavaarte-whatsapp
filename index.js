@@ -4,7 +4,6 @@ const {
   DisconnectReason, 
   fetchLatestBaileysVersion 
 } = require('@whiskeysockets/baileys');
-const qrcode = require('qrcode-terminal');
 const axios = require('axios');
 
 // Webhook de Apps Script para Nómina y Logística
@@ -56,8 +55,17 @@ function normalizarTexto(txt) {
     .trim();
 }
 
+function extraerTelefono10Digitos(jidStr) {
+  if (!jidStr) return "";
+  let limpio = jidStr.split('@')[0].split(':')[0].replace(/\D/g, '');
+  if (limpio.length > 10) {
+    return limpio.slice(-10);
+  }
+  return limpio;
+}
+
 async function iniciarBot() {
-  console.log('🔄 Inicializando cliente Baileys...');
+  console.log('🔄 Inicializando cliente Baileys con sesión persistente...');
   
   const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys_v2');
   let version;
@@ -87,18 +95,15 @@ async function iniciarBot() {
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
 
+    // Solo imprime URL si realmente se requiere reconectar y no hay sesión activa
     if (qr) {
-      const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(qr)}`;
-      console.log('\n======================================================');
-      console.log('📱 CÓDIGO QR GENERADO: ' + qrImageUrl);
-      console.log('======================================================\n');
-      qrcode.generate(qr, { small: true });
+      console.log('ℹ️ Se detectó solicitud de QR (Sesión no encontrada o desvinculada).');
     }
 
     if (connection === 'close') {
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       const debeReconectar = statusCode !== DisconnectReason.loggedOut;
-      console.log(`🔌 Conexión cerrada (${statusCode}). Reconectando: ${debeReconectar}`);
+      console.log(`🔌 Conexión cerrada (${statusCode}). Reconectando automáticamente: ${debeReconectar}`);
       if (debeReconectar) setTimeout(() => iniciarBot(), 4000);
       else setTimeout(() => iniciarBot(), 5000);
     } else if (connection === 'open') {
@@ -130,12 +135,11 @@ async function iniciarBot() {
       return;
     }
 
-    // 2. EXTRACCIÓN DE HORA
+    // 2. EXTRACCIÓN DE HORA (TIEMPO REAL BOGOTÁ O INDICADA EN MENSAJE)
     const ahora = new Date();
     let horaCalculada = ahora.toLocaleTimeString('en-US', { timeZone: 'America/Bogota', hour12: true });
     const fechaCalculada = ahora.toLocaleDateString('es-CO', { timeZone: 'America/Bogota', day: '2-digit', month: '2-digit', year: 'numeric' });
 
-    // Detectar patrones como "8:15", "8:50 am", "a las 9", "10:30pm"
     const matchHora = textoNorm.match(/(?:a las\s*)?(\b\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?/);
     let textoSinHora = textoNorm;
 
@@ -159,15 +163,14 @@ async function iniciarBot() {
         const hhStr = hh12 < 10 ? `0${hh12}` : `${hh12}`;
         horaCalculada = `${hhStr}:${mm}:00 ${ampm}`;
 
-        // Retiramos la hora detectada para que ningún número de la hora sea confundido con un código de empleado
         textoSinHora = textoSinHora.replace(matchHora[0], ' ');
       }
     }
 
-    const remitenteRaw = m.key.participant || m.participant || "";
-    let remitenteTel = remitenteRaw.split('@')[0].replace(/\D/g, '');
-    if (remitenteTel.length > 10) remitenteTel = remitenteTel.slice(-10);
-    const pushName = m.pushName || "Colaborador";
+    // EXTRACCIÓN ROBUSTA DEL REMITENTE EN GRUPO (Soporta participant, participantPn y LID)
+    const remitenteRaw = m.key.participantPn || m.key.participant || m.participant || "";
+    let remitenteTel = extraerTelefono10Digitos(remitenteRaw);
+    const pushName = (m.pushName || "").trim() || "Colaborador";
 
     // =========================================================================
     // CANAL 1: LOGÍSTICA DE HOTELES Y RUTAS (LLEGADA / SALIDA)
@@ -184,7 +187,7 @@ async function iniciarBot() {
       const esSalida = ['salida', 'saliendo', 'me voy', 'despachado', 'fin', 'termino', 'terminamos', 'finaliza', 'finalizada', 'chao', 'listo hotel'].some(p => textoNorm.includes(p));
       const tipoEvento = esSalida ? "SALIDA" : "LLEGADA";
 
-      console.log(`🏨 [LOGÍSTICA] Hotel: ${hotelDetectado} | ${tipoEvento} | Hora: ${horaCalculada} | Por: ${pushName}`);
+      console.log(`🏨 [LOGÍSTICA] Hotel: ${hotelDetectado} | ${tipoEvento} | Hora: ${horaCalculada} | Por: ${pushName} (${remitenteTel})`);
 
       try {
         await axios.post(APPS_SCRIPT_URL, {
@@ -219,21 +222,20 @@ async function iniciarBot() {
     const esEntrada = palabrasEntrada.some(p => textoNorm.includes(p));
     const esSalida = palabrasSalida.some(p => textoNorm.includes(p));
 
-    // Si no contiene palabras de entrada/salida o de saludo laboral, no procesa
     if (!esEntrada && !esSalida && !textoNorm.includes('codigo') && !textoNorm.includes('cod')) {
       return;
     }
 
     let tipoMov = esSalida ? "SALIDA" : "INGRESO";
 
-    // EXTRACCIÓN DE CÓDIGO MANUAL ESTRICTO: Solo si viene precedido explícitamente por "codigo" o "cod"
+    // Código manual explícito si viene
     let codigoManual = "";
     const matchCodExplícito = textoSinHora.match(/\b(?:codigo|cod|id)\s*[:#-]?\s*(\d{1,3})\b/);
     if (matchCodExplícito) {
       codigoManual = matchCodExplícito[1];
     }
 
-    // EXTRACCIÓN DEL NOMBRE DEL MENSAJE (ej: "Ingreso Michael 8:15" -> "MICHAEL")
+    // Extracción de nombre si lo escribieron dentro del texto
     let palabrasRestantes = textoSinHora
       .replace(/buenos dias|buen dia|reporto entrada|reporto salida|reporte entrada|reporte salida|ingreso|entrada|salida|hora|de|a las|am|pm|hola|buenas|presente|iniciando|inicio|turno|codigo|cod|id/g, ' ')
       .replace(/[^a-z0-9\s]/g, ' ')
@@ -247,10 +249,10 @@ async function iniciarBot() {
     }
 
     const obs = `Marcaje WhatsApp (${pushName}) | "${texto}"`;
-    console.log(`👤 [ASISTENCIA] ${tipoMov} | Hora: ${horaCalculada} | Cel: ${remitenteTel} | NombreMsg: '${nombreObjetivo}' | Cod: '${codigoManual}'`);
+    console.log(`👤 [ASISTENCIA] ${tipoMov} | Hora: ${horaCalculada} | Cel: ${remitenteTel} | PushName: '${pushName}' | NombreMsg: '${nombreObjetivo}' | Cod: '${codigoManual}'`);
 
     try {
-      await axios.post(APPS_SCRIPT_URL, {
+      const res = await axios.post(APPS_SCRIPT_URL, {
         canal: "NOMINA",
         telefono: remitenteTel,
         codigo_manual: codigoManual,
@@ -261,6 +263,7 @@ async function iniciarBot() {
         fecha: fechaCalculada,
         observaciones: obs
       }, { timeout: 20000 });
+      console.log('✅ Respuesta Apps Script Nómina:', res.data);
     } catch (err) {
       console.error('❌ Error enviando nómina:', err.message);
     }
