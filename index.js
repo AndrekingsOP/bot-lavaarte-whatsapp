@@ -1,13 +1,15 @@
+import baileys from '@whiskeysockets/baileys';
 const { 
   default: makeWASocket, 
   useMultiFileAuthState, 
   DisconnectReason, 
   fetchLatestBaileysVersion 
-} = require('@whiskeysockets/baileys');
-const axios = require('axios');
-const express = require('express');
-const QRCode = require('qrcode');
-const qrcodeTerminal = require('qrcode-terminal');
+} = baileys;
+
+import axios from 'axios';
+import express from 'express';
+import QRCode from 'qrcode';
+import qrcodeTerminal from 'qrcode-terminal';
 
 // =========================================================================
 // SERVIDOR WEB EXPRESS ANTI-SUSPENSIÓN Y VISOR QR PARA RENDER (24/7)
@@ -195,7 +197,6 @@ async function iniciarBot() {
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
 
-    // Captura del QR para mostrar tanto en la web de Render como en la consola
     if (qr) {
       qrActual = qr;
       estadoConexion = "QR_PENDIENTE";
