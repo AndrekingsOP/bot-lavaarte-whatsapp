@@ -1,19 +1,21 @@
-import makeWASocket, { 
-  useMultiFileAuthState, 
-  DisconnectReason, 
-  fetchLatestBaileysVersion 
-} from '@whiskeysockets/baileys';
-
-import axios from 'axios';
 import express from 'express';
 import QRCode from 'qrcode';
 import qrcodeTerminal from 'qrcode-terminal';
+import axios from 'axios';
+import baileys from '@whiskeysockets/baileys';
+
+const { 
+  default: makeWASocket, 
+  useMultiFileAuthState, 
+  DisconnectReason, 
+  fetchLatestBaileysVersion 
+} = baileys;
 
 // =========================================================================
-// SERVIDOR WEB EXPRESS ANTI-SUSPENSIÓN Y VISOR QR PARA RENDER (24/7)
+// 1. SERVIDOR WEB INDEPENDIENTE (NUNCA CAE ANTE ERRORES DE BAILEYS)
 // =========================================================================
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 let qrActual = null;
 let estadoConexion = "Iniciando cliente WhatsApp...";
 
@@ -65,9 +67,7 @@ app.get('/', async (req, res) => {
             </p>
           </div>
           <script>
-            setTimeout(function() {
-              window.location.reload();
-            }, 15000);
+            setTimeout(function() { window.location.reload(); }, 15000);
           </script>
         </body>
         </html>
@@ -88,29 +88,27 @@ app.get('/', async (req, res) => {
     <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; text-align: center; padding: 40px; background: #0f172a; color: white; min-height: 100vh; margin: 0;">
       <div style="max-width: 450px; margin: 0 auto; background: #1e293b; padding: 30px; border-radius: 16px;">
         <h2 style="color: #facc15; margin-top: 0;">⏳ Iniciando cliente WhatsApp...</h2>
-        <p style="color: #94a3b8;">Generando llaves seguras y solicitando el código QR a WhatsApp...</p>
+        <p style="color: #94a3b8;">Generando llaves y solicitando QR a WhatsApp...</p>
       </div>
       <script>
-        setTimeout(function() {
-          window.location.reload();
-        }, 5000);
+        setTimeout(function() { window.location.reload(); }, 5000);
       </script>
     </body>
     </html>
   `);
 });
 
+// Levantar servidor web de inmediato
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🌐 [RENDER OK] Servidor Web activo escuchando en el puerto ${PORT}`);
 });
 
 // =========================================================================
-// CONFIGURACIÓN LOGÍSTICA Y ASISTENCIA LAVAARTE
+// 2. CONFIGURACIÓN LOGÍSTICA Y ASISTENCIA LAVAARTE
 // =========================================================================
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyRY5VDZFm3EgSmeMFec6DyDE5X2-Jsv26KZn8iya7OPbrmoNxz-Z2ByuBnGTXF3zXS/exec';
 const ID_GRUPO_LAVAARTE = '120363044348453055@g.us';
 
-// DICCIONARIO FLEXIBLE DE HOTELES (SIN TILDES NI MAYÚSCULAS)
 const HOTELES_CANAL = {
   'ruta oriente': 'RUTA ORIENTE',
   'ruta norte': 'RUTA NORTE',
@@ -164,217 +162,233 @@ function extraerTelefono10Digitos(jidStr) {
   return limpio;
 }
 
+// =========================================================================
+// 3. NÚCLEO AUTÓNOMO BAILEYS CON RECONEXIÓN SEGURA
+// =========================================================================
+let reintentando = false;
+
 async function iniciarBot() {
+  if (reintentando) return;
   console.log('🔄 Inicializando cliente Baileys con sesión persistente...');
-  
-  const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys_v2');
-  let version;
+
   try {
-    const v = await fetchLatestBaileysVersion();
-    version = v.version;
-  } catch (e) {
-    version = [2, 3000, 1015901307];
-  }
-
-  const sock = makeWASocket({
-    version,
-    auth: state,
-    printQRInTerminal: false,
-    browser: ['Lavaarte OS', 'Chrome', '1.0.0'],
-    syncFullHistory: false,
-    markOnlineOnConnect: false,
-    generateHighQualityLinkPreview: false,
-    defaultQueryTimeoutMs: 60000,
-    connectTimeoutMs: 60000,
-    keepAliveIntervalMs: 25000,
-    shouldIgnoreJid: () => false
-  });
-
-  sock.ev.on('creds.update', saveCreds);
-
-  sock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect, qr } = update;
-
-    if (qr) {
-      qrActual = qr;
-      estadoConexion = "QR_PENDIENTE";
-      console.log('\n📲 [CÓDIGO QR DISPONIBLE] Escanéalo en la consola o abre la URL web de Render:');
-      try {
-        qrcodeTerminal.generate(qr, { small: true });
-      } catch (e) {}
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys_v2');
+    
+    let version;
+    try {
+      const v = await fetchLatestBaileysVersion();
+      version = v.version;
+    } catch (e) {
+      version = [2, 3000, 1015901307];
     }
 
-    if (connection === 'close') {
-      estadoConexion = "DESCONECTADO";
-      const statusCode = lastDisconnect?.error?.output?.statusCode;
-      const debeReconectar = statusCode !== DisconnectReason.loggedOut;
-      console.log(`🔌 Conexión cerrada (${statusCode}). Reconectando automáticamente: ${debeReconectar}`);
-      if (debeReconectar) setTimeout(() => iniciarBot(), 4000);
-      else setTimeout(() => iniciarBot(), 5000);
-    } else if (connection === 'open') {
-      qrActual = null;
-      estadoConexion = "CONECTADO";
-      console.log('\n======================================================');
-      console.log('🛡️ PUENTE LAVAARTE ACTIVO - NÓMINA + LOGÍSTICA HOTELES');
-      console.log(`📡 Escuchando exclusivamente en: ${ID_GRUPO_LAVAARTE}`);
-      console.log('======================================================\n');
-    }
-  });
+    const sock = makeWASocket({
+      version,
+      auth: state,
+      printQRInTerminal: false,
+      browser: ['Lavaarte OS', 'Chrome', '1.0.0'],
+      syncFullHistory: false,
+      markOnlineOnConnect: false,
+      generateHighQualityLinkPreview: false,
+      defaultQueryTimeoutMs: 60000,
+      connectTimeoutMs: 60000,
+      keepAliveIntervalMs: 25000,
+      shouldIgnoreJid: () => false
+    });
 
-  sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    if (type !== 'notify') return;
-    const m = messages[0];
-    if (!m || !m.message) return;
+    sock.ev.on('creds.update', saveCreds);
 
-    const jid = m.key.remoteJid;
-    if (jid !== ID_GRUPO_LAVAARTE) return;
+    sock.ev.on('connection.update', async (update) => {
+      const { connection, lastDisconnect, qr } = update;
 
-    const texto = m.message.conversation || 
-                  m.message.extendedTextMessage?.text || 
-                  m.message.imageMessage?.caption || "";
-                  
-    if (!texto.trim()) return;
+      if (qr) {
+        qrActual = qr;
+        estadoConexion = "QR_PENDIENTE";
+        console.log('\n📲 [CÓDIGO QR DISPONIBLE] Escanéalo en la consola o abre la URL web de Render:');
+        try {
+          qrcodeTerminal.generate(qr, { small: true });
+        } catch (e) {}
+      }
 
-    const textoNorm = normalizarTexto(texto);
-
-    // 1. FILTRO DE EXCLUSIÓN TOTAL: Almuerzos y notas operativas se ignoran
-    if (textoNorm.includes('almuerzo') || textoNorm.includes('almorzar') || textoNorm.includes('refrigerio') || textoNorm.includes('organizar') || textoNorm.includes('cerrar caja') || textoNorm.includes('entregarla')) {
-      return;
-    }
-
-    // 2. EXTRACCIÓN DE HORA (TIEMPO REAL BOGOTÁ O INDICADA EN MENSAJE)
-    const ahora = new Date();
-    let horaCalculada = ahora.toLocaleTimeString('en-US', { timeZone: 'America/Bogota', hour12: true });
-    const fechaCalculada = ahora.toLocaleDateString('es-CO', { timeZone: 'America/Bogota', day: '2-digit', month: '2-digit', year: 'numeric' });
-
-    const matchHora = textoNorm.match(/(?:a las\s*)?(\b\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?/);
-    let textoSinHora = textoNorm;
-
-    if (matchHora && (matchHora[2] !== undefined || matchHora[3] !== undefined || textoNorm.includes('hora') || textoNorm.includes(' a las '))) {
-      let hh = parseInt(matchHora[1], 10);
-      let mm = matchHora[2] ? matchHora[2] : "00";
-      let mod = matchHora[3] ? matchHora[3].replace(/\./g, '') : "";
-
-      if (hh <= 24) {
-        if (!mod) {
-          if (hh >= 1 && hh <= 11 && (textoNorm.includes('tarde') || textoNorm.includes('salida') || (hh >= 1 && hh <= 5))) mod = "pm";
-          else if (hh >= 6 && hh <= 11) mod = "am";
-          else if (hh >= 12) mod = "pm";
-          else mod = "am";
+      if (connection === 'close') {
+        estadoConexion = "DESCONECTADO";
+        const statusCode = lastDisconnect?.error?.output?.statusCode;
+        const debeReconectar = statusCode !== DisconnectReason.loggedOut;
+        console.log(`🔌 Conexión cerrada (${statusCode}). Reconectando: ${debeReconectar}`);
+        
+        if (debeReconectar) {
+          reintentando = true;
+          setTimeout(() => {
+            reintentando = false;
+            iniciarBot();
+          }, 5000);
         }
-        if (mod === "pm" && hh < 12) hh += 12;
-        if (mod === "am" && hh === 12) hh = 0;
-
-        const ampm = hh >= 12 ? 'PM' : 'AM';
-        const hh12 = hh % 12 === 0 ? 12 : hh % 12;
-        const hhStr = hh12 < 10 ? `0${hh12}` : `${hh12}`;
-        horaCalculada = `${hhStr}:${mm}:00 ${ampm}`;
-
-        textoSinHora = textoSinHora.replace(matchHora[0], ' ');
+      } else if (connection === 'open') {
+        qrActual = null;
+        estadoConexion = "CONECTADO";
+        console.log('\n======================================================');
+        console.log('🛡️ PUENTE LAVAARTE ACTIVO - NÓMINA + LOGÍSTICA HOTELES');
+        console.log(`📡 Escuchando exclusivamente en: ${ID_GRUPO_LAVAARTE}`);
+        console.log('======================================================\n');
       }
-    }
+    });
 
-    // EXTRACCIÓN ROBUSTA DEL REMITENTE EN GRUPO (Soporta participant, participantPn y LID)
-    const remitenteRaw = m.key.participantPn || m.key.participant || m.participant || "";
-    let remitenteTel = extraerTelefono10Digitos(remitenteRaw);
-    const pushName = (m.pushName || "").trim() || "Colaborador";
+    sock.ev.on('messages.upsert', async ({ messages, type }) => {
+      if (type !== 'notify') return;
+      const m = messages[0];
+      if (!m || !m.message) return;
 
-    // =========================================================================
-    // CANAL 1: LOGÍSTICA DE HOTELES Y RUTAS (LLEGADA / SALIDA)
-    // =========================================================================
-    let hotelDetectado = null;
-    for (const [clave, nombreOficial] of Object.entries(HOTELES_CANAL)) {
-      if (textoNorm.includes(clave)) {
-        hotelDetectado = nombreOficial;
-        break;
+      const jid = m.key.remoteJid;
+      if (jid !== ID_GRUPO_LAVAARTE) return;
+
+      const texto = m.message.conversation || 
+                    m.message.extendedTextMessage?.text || 
+                    m.message.imageMessage?.caption || "";
+                    
+      if (!texto.trim()) return;
+
+      const textoNorm = normalizarTexto(texto);
+
+      // Filtro de exclusión total
+      if (textoNorm.includes('almuerzo') || textoNorm.includes('almorzar') || textoNorm.includes('refrigerio') || textoNorm.includes('organizar') || textoNorm.includes('cerrar caja') || textoNorm.includes('entregarla')) {
+        return;
       }
-    }
 
-    if (hotelDetectado) {
-      const esSalida = ['salida', 'saliendo', 'me voy', 'despachado', 'fin', 'termino', 'terminamos', 'finaliza', 'finalizada', 'chao', 'listo hotel'].some(p => textoNorm.includes(p));
-      const tipoEvento = esSalida ? "SALIDA" : "LLEGADA";
+      // Extracción de hora Bogotá
+      const ahora = new Date();
+      let horaCalculada = ahora.toLocaleTimeString('en-US', { timeZone: 'America/Bogota', hour12: true });
+      const fechaCalculada = ahora.toLocaleDateString('es-CO', { timeZone: 'America/Bogota', day: '2-digit', month: '2-digit', year: 'numeric' });
 
-      console.log(`🏨 [LOGÍSTICA] Hotel: ${hotelDetectado} | ${tipoEvento} | Hora: ${horaCalculada} | Por: ${pushName} (${remitenteTel})`);
+      const matchHora = textoNorm.match(/(?:a las\s*)?(\b\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?/);
+      let textoSinHora = textoNorm;
+
+      if (matchHora && (matchHora[2] !== undefined || matchHora[3] !== undefined || textoNorm.includes('hora') || textoNorm.includes(' a las '))) {
+        let hh = parseInt(matchHora[1], 10);
+        let mm = matchHora[2] ? matchHora[2] : "00";
+        let mod = matchHora[3] ? matchHora[3].replace(/\./g, '') : "";
+
+        if (hh <= 24) {
+          if (!mod) {
+            if (hh >= 1 && hh <= 11 && (textoNorm.includes('tarde') || textoNorm.includes('salida') || (hh >= 1 && hh <= 5))) mod = "pm";
+            else if (hh >= 6 && hh <= 11) mod = "am";
+            else if (hh >= 12) mod = "pm";
+            else mod = "am";
+          }
+          if (mod === "pm" && hh < 12) hh += 12;
+          if (mod === "am" && hh === 12) hh = 0;
+
+          const ampm = hh >= 12 ? 'PM' : 'AM';
+          const hh12 = hh % 12 === 0 ? 12 : hh % 12;
+          const hhStr = hh12 < 10 ? `0${hh12}` : `${hh12}`;
+          horaCalculada = `${hhStr}:${mm}:00 ${ampm}`;
+
+          textoSinHora = textoSinHora.replace(matchHora[0], ' ');
+        }
+      }
+
+      const remitenteRaw = m.key.participantPn || m.key.participant || m.participant || "";
+      let remitenteTel = extraerTelefono10Digitos(remitenteRaw);
+      const pushName = (m.pushName || "").trim() || "Colaborador";
+
+      // Canal 1: Logística de Hoteles
+      let hotelDetectado = null;
+      for (const [clave, nombreOficial] of Object.entries(HOTELES_CANAL)) {
+        if (textoNorm.includes(clave)) {
+          hotelDetectado = nombreOficial;
+          break;
+        }
+      }
+
+      if (hotelDetectado) {
+        const esSalida = ['salida', 'saliendo', 'me voy', 'despachado', 'fin', 'termino', 'terminamos', 'finaliza', 'finalizada', 'chao', 'listo hotel'].some(p => textoNorm.includes(p));
+        const tipoEvento = esSalida ? "SALIDA" : "LLEGADA";
+
+        console.log(`🏨 [LOGÍSTICA] Hotel: ${hotelDetectado} | ${tipoEvento} | Hora: ${horaCalculada} | Por: ${pushName} (${remitenteTel})`);
+
+        try {
+          await axios.post(APPS_SCRIPT_URL, {
+            canal: "LOGISTICA_HOTELES",
+            hotel: hotelDetectado,
+            tipo: tipoEvento,
+            hora: horaCalculada,
+            fecha: fechaCalculada,
+            telefono: remitenteTel,
+            push_name: pushName,
+            mensaje_raw: texto
+          }, { timeout: 20000 });
+        } catch (err) {
+          console.error('❌ Error enviando logística:', err.message);
+        }
+        return;
+      }
+
+      // Canal 2: Asistencia y Nómina
+      const palabrasEntrada = [
+        'ingreso', 'entrada', 'llegue', 'llego', 'buenos dias', 'buen dia', 
+        'iniciando', 'inicio turno', 'presente', 'reporto entrada', 'reporte entrada',
+        'hola', 'buenas', 'iniciamos', 'aqui planta', 'llegando', 'planta'
+      ];
+      const palabrasSalida = [
+        'salida', 'me voy', 'chao', 'hasta manana', 'fin turno', 'termino', 
+        'saliendo', 'salgo', 'termine', 'reporto salida', 'reporte salida', 'hasta luego'
+      ];
+
+      const esEntrada = palabrasEntrada.some(p => textoNorm.includes(p));
+      const esSalida = palabrasSalida.some(p => textoNorm.includes(p));
+
+      if (!esEntrada && !esSalida && !textoNorm.includes('codigo') && !textoNorm.includes('cod')) {
+        return;
+      }
+
+      let tipoMov = esSalida ? "SALIDA" : "INGRESO";
+
+      let codigoManual = "";
+      const matchCodExplícito = textoSinHora.match(/\b(?:codigo|cod|id)\s*[:#-]?\s*(\d{1,3})\b/);
+      if (matchCodExplícito) {
+        codigoManual = matchCodExplícito[1];
+      }
+
+      let palabrasRestantes = textoSinHora
+        .replace(/buenos dias|buen dia|reporto entrada|reporto salida|reporte entrada|reporte salida|ingreso|entrada|salida|hora|de|a las|am|pm|hola|buenas|presente|iniciando|inicio|turno|codigo|cod|id/g, ' ')
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .trim()
+        .split(/\s+/)
+        .filter(w => w.length >= 3 && !['hoy', 'tarde', 'temprano', 'ya', 'listo', 'aqui', 'planta', 'para'].includes(w));
+
+      let nombreObjetivo = "";
+      if (palabrasRestantes.length > 0) {
+        nombreObjetivo = palabrasRestantes[0].toUpperCase();
+      }
+
+      const obs = `Marcaje WhatsApp (${pushName}) | "${texto}"`;
+      console.log(`👤 [ASISTENCIA] ${tipoMov} | Hora: ${horaCalculada} | Cel: ${remitenteTel} | PushName: '${pushName}' | NombreMsg: '${nombreObjetivo}' | Cod: '${codigoManual}'`);
 
       try {
-        await axios.post(APPS_SCRIPT_URL, {
-          canal: "LOGISTICA_HOTELES",
-          hotel: hotelDetectado,
-          tipo: tipoEvento,
+        const res = await axios.post(APPS_SCRIPT_URL, {
+          canal: "NOMINA",
+          telefono: remitenteTel,
+          codigo_manual: codigoManual,
+          nombre: nombreObjetivo,
+          push_name: pushName,
+          tipo: tipoMov,
           hora: horaCalculada,
           fecha: fechaCalculada,
-          telefono: remitenteTel,
-          push_name: pushName,
-          mensaje_raw: texto
+          observaciones: obs
         }, { timeout: 20000 });
+        console.log('✅ Respuesta Apps Script Nómina:', res.data);
       } catch (err) {
-        console.error('❌ Error enviando logística:', err.message);
+        console.error('❌ Error enviando nómina:', err.message);
       }
-      return;
-    }
+    });
 
-    // =========================================================================
-    // CANAL 2: ASISTENCIA Y NÓMINA (ENTRADAS / SALIDAS FLEXIBLES)
-    // =========================================================================
-    const palabrasEntrada = [
-      'ingreso', 'entrada', 'llegue', 'llego', 'buenos dias', 'buen dia', 
-      'iniciando', 'inicio turno', 'presente', 'reporto entrada', 'reporte entrada',
-      'hola', 'buenas', 'iniciamos', 'aqui planta', 'llegando', 'planta'
-    ];
-    const palabrasSalida = [
-      'salida', 'me voy', 'chao', 'hasta manana', 'fin turno', 'termino', 
-      'saliendo', 'salgo', 'termine', 'reporto salida', 'reporte salida', 'hasta luego'
-    ];
-
-    const esEntrada = palabrasEntrada.some(p => textoNorm.includes(p));
-    const esSalida = palabrasSalida.some(p => textoNorm.includes(p));
-
-    if (!esEntrada && !esSalida && !textoNorm.includes('codigo') && !textoNorm.includes('cod')) {
-      return;
-    }
-
-    let tipoMov = esSalida ? "SALIDA" : "INGRESO";
-
-    // Código manual explícito si viene
-    let codigoManual = "";
-    const matchCodExplícito = textoSinHora.match(/\b(?:codigo|cod|id)\s*[:#-]?\s*(\d{1,3})\b/);
-    if (matchCodExplícito) {
-      codigoManual = matchCodExplícito[1];
-    }
-
-    // Extracción de nombre si lo escribieron dentro del texto
-    let palabrasRestantes = textoSinHora
-      .replace(/buenos dias|buen dia|reporto entrada|reporto salida|reporte entrada|reporte salida|ingreso|entrada|salida|hora|de|a las|am|pm|hola|buenas|presente|iniciando|inicio|turno|codigo|cod|id/g, ' ')
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .trim()
-      .split(/\s+/)
-      .filter(w => w.length >= 3 && !['hoy', 'tarde', 'temprano', 'ya', 'listo', 'aqui', 'planta', 'para'].includes(w));
-
-    let nombreObjetivo = "";
-    if (palabrasRestantes.length > 0) {
-      nombreObjetivo = palabrasRestantes[0].toUpperCase();
-    }
-
-    const obs = `Marcaje WhatsApp (${pushName}) | "${texto}"`;
-    console.log(`👤 [ASISTENCIA] ${tipoMov} | Hora: ${horaCalculada} | Cel: ${remitenteTel} | PushName: '${pushName}' | NombreMsg: '${nombreObjetivo}' | Cod: '${codigoManual}'`);
-
-    try {
-      const res = await axios.post(APPS_SCRIPT_URL, {
-        canal: "NOMINA",
-        telefono: remitenteTel,
-        codigo_manual: codigoManual,
-        nombre: nombreObjetivo,
-        push_name: pushName,
-        tipo: tipoMov,
-        hora: horaCalculada,
-        fecha: fechaCalculada,
-        observaciones: obs
-      }, { timeout: 20000 });
-      console.log('✅ Respuesta Apps Script Nómina:', res.data);
-    } catch (err) {
-      console.error('❌ Error enviando nómina:', err.message);
-    }
-  });
+  } catch (errGlobal) {
+    console.error('⚠️ [ERROR INICIALIZACIÓN BAILEYS]:', errGlobal.message);
+    reintentando = true;
+    setTimeout(() => {
+      reintentando = false;
+      iniciarBot();
+    }, 6000);
+  }
 }
 
 iniciarBot();
