@@ -2,14 +2,14 @@ import express from 'express';
 import QRCode from 'qrcode';
 import qrcodeTerminal from 'qrcode-terminal';
 import axios from 'axios';
-import baileys from '@whiskeysockets/baileys';
+import * as BaileysModule from '@whiskeysockets/baileys';
 
-const { 
-  default: makeWASocket, 
-  useMultiFileAuthState, 
-  DisconnectReason, 
-  fetchLatestBaileysVersion 
-} = baileys;
+// Desempaquetador seguro para compatibilidad total en Node.js ES Modules
+const baileysPkg = BaileysModule.default?.default ? BaileysModule.default : (BaileysModule.default || BaileysModule);
+const makeWASocket = baileysPkg.default || baileysPkg.makeWASocket || BaileysModule.makeWASocket;
+const useMultiFileAuthState = baileysPkg.useMultiFileAuthState || BaileysModule.useMultiFileAuthState;
+const DisconnectReason = baileysPkg.DisconnectReason || BaileysModule.DisconnectReason;
+const fetchLatestBaileysVersion = baileysPkg.fetchLatestBaileysVersion || BaileysModule.fetchLatestBaileysVersion;
 
 // =========================================================================
 // 1. SERVIDOR WEB INDEPENDIENTE (NUNCA CAE ANTE ERRORES DE BAILEYS)
@@ -98,7 +98,6 @@ app.get('/', async (req, res) => {
   `);
 });
 
-// Levantar servidor web de inmediato
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🌐 [RENDER OK] Servidor Web activo escuchando en el puerto ${PORT}`);
 });
