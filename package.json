@@ -1,14 +1,17 @@
 {
   "name": "bot-lavaarte-whatsapp",
   "version": "1.0.0",
-  "description": "Bot WhatsApp Lavaarte SAS - Nómina y Logística",
+  "description": "Bot WhatsApp Lavaarte con Baileys",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.6.0",
-    "axios": "^1.7.2",
+    "@whiskeysockets/baileys": "^6.7.9",
+    "express": "^4.19.2",
+    "pino": "^9.0.0",
+    "qrcode": "^1.5.3",
     "qrcode-terminal": "^0.12.0"
   }
 }
