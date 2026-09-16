@@ -5,8 +5,108 @@ const {
   fetchLatestBaileysVersion 
 } = require('@whiskeysockets/baileys');
 const axios = require('axios');
+const express = require('express');
+const QRCode = require('qrcode');
+const qrcodeTerminal = require('qrcode-terminal');
 
-// Webhook de Apps Script para Nómina y Logística
+// =========================================================================
+// SERVIDOR WEB EXPRESS ANTI-SUSPENSIÓN Y VISOR QR PARA RENDER (24/7)
+// =========================================================================
+const app = express();
+const PORT = process.env.PORT || 3000;
+let qrActual = null;
+let estadoConexion = "Iniciando cliente WhatsApp...";
+
+app.get('/', async (req, res) => {
+  if (estadoConexion === "CONECTADO") {
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>WhatsApp Lavaarte SAS</title>
+      </head>
+      <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; text-align: center; padding: 40px; background: #0f172a; color: white; min-height: 100vh; margin: 0; box-sizing: border-box;">
+        <div style="max-width: 480px; margin: 0 auto; background: #1e293b; padding: 30px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
+          <h1 style="color: #22c55e; margin-top: 0; font-size: 24px;">✅ Bot WhatsApp Lavaarte Activo</h1>
+          <p style="color: #94a3b8; font-size: 15px;">La sesión de WhatsApp está vinculada y operando de forma continua 24/7 en Render.</p>
+          <div style="background: #0f172a; padding: 12px; border-radius: 8px; margin-top: 20px; font-size: 13px; color: #38bdf8;">
+            📡 Escuchando grupo operativo y nómina
+          </div>
+        </div>
+      </body>
+      </html>
+    `);
+  }
+
+  if (qrActual) {
+    try {
+      const qrDataUrl = await QRCode.toDataURL(qrActual);
+      return res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Escanear QR - WhatsApp Lavaarte</title>
+        </head>
+        <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; text-align: center; padding: 25px; background: #0f172a; color: white; min-height: 100vh; margin: 0; box-sizing: border-box;">
+          <div style="max-width: 450px; margin: 0 auto; background: #1e293b; padding: 25px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
+            <h2 style="color: #38bdf8; margin-top: 0; font-size: 22px;">📱 Escanea el QR de Lavaarte</h2>
+            <p style="color: #94a3b8; font-size: 14px; margin-bottom: 20px;">
+              Abre WhatsApp en tu celular &gt; <b>Dispositivos vinculados</b> &gt; <b>Vincular dispositivo</b>:
+            </p>
+            <div style="background: white; display: inline-block; padding: 16px; border-radius: 14px;">
+              <img src="${qrDataUrl}" style="width: 260px; height: 260px; display: block;" alt="Código QR WhatsApp" />
+            </div>
+            <p style="color: #64748b; font-size: 12px; margin-top: 20px;">
+              ⏳ Esta pantalla se actualiza sola cada 15 segundos con el código más reciente.
+            </p>
+          </div>
+          <script>
+            setTimeout(function() {
+              window.location.reload();
+            }, 15000);
+          </script>
+        </body>
+        </html>
+      `);
+    } catch (err) {
+      return res.send("Error generando código QR en pantalla: " + err.message);
+    }
+  }
+
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Conectando WhatsApp...</title>
+    </head>
+    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; text-align: center; padding: 40px; background: #0f172a; color: white; min-height: 100vh; margin: 0;">
+      <div style="max-width: 450px; margin: 0 auto; background: #1e293b; padding: 30px; border-radius: 16px;">
+        <h2 style="color: #facc15; margin-top: 0;">⏳ Iniciando cliente WhatsApp...</h2>
+        <p style="color: #94a3b8;">Generando llaves seguras y solicitando el código QR a WhatsApp...</p>
+      </div>
+      <script>
+        setTimeout(function() {
+          window.location.reload();
+        }, 5000);
+      </script>
+    </body>
+    </html>
+  `);
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🌐 [RENDER OK] Servidor Web activo escuchando en el puerto ${PORT}`);
+});
+
+// =========================================================================
+// CONFIGURACIÓN LOGÍSTICA Y ASISTENCIA LAVAARTE
+// =========================================================================
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyRY5VDZFm3EgSmeMFec6DyDE5X2-Jsv26KZn8iya7OPbrmoNxz-Z2ByuBnGTXF3zXS/exec';
 const ID_GRUPO_LAVAARTE = '120363044348453055@g.us';
 
@@ -95,18 +195,26 @@ async function iniciarBot() {
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
 
-    // Solo imprime URL si realmente se requiere reconectar y no hay sesión activa
+    // Captura del QR para mostrar tanto en la web de Render como en la consola
     if (qr) {
-      console.log('ℹ️ Se detectó solicitud de QR (Sesión no encontrada o desvinculada).');
+      qrActual = qr;
+      estadoConexion = "QR_PENDIENTE";
+      console.log('\n📲 [CÓDIGO QR DISPONIBLE] Escanéalo en la consola o abre la URL web de Render:');
+      try {
+        qrcodeTerminal.generate(qr, { small: true });
+      } catch (e) {}
     }
 
     if (connection === 'close') {
+      estadoConexion = "DESCONECTADO";
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       const debeReconectar = statusCode !== DisconnectReason.loggedOut;
       console.log(`🔌 Conexión cerrada (${statusCode}). Reconectando automáticamente: ${debeReconectar}`);
       if (debeReconectar) setTimeout(() => iniciarBot(), 4000);
       else setTimeout(() => iniciarBot(), 5000);
     } else if (connection === 'open') {
+      qrActual = null;
+      estadoConexion = "CONECTADO";
       console.log('\n======================================================');
       console.log('🛡️ PUENTE LAVAARTE ACTIVO - NÓMINA + LOGÍSTICA HOTELES');
       console.log(`📡 Escuchando exclusivamente en: ${ID_GRUPO_LAVAARTE}`);
