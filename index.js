@@ -1,10 +1,8 @@
-import baileys from '@whiskeysockets/baileys';
-const { 
-  default: makeWASocket, 
+import makeWASocket, { 
   useMultiFileAuthState, 
   DisconnectReason, 
   fetchLatestBaileysVersion 
-} = baileys;
+} from '@whiskeysockets/baileys';
 
 import axios from 'axios';
 import express from 'express';
