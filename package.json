@@ -1,7 +1,7 @@
 {
   "name": "bot-lavaarte-whatsapp",
   "version": "1.0.0",
-  "description": "Bot WhatsApp Lavaarte con Baileys",
+  "description": "Bot WhatsApp Lavaarte con Baileys Blindado 24/7",
   "main": "index.js",
   "type": "module",
   "scripts": {
@@ -9,8 +9,8 @@
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.9",
+    "axios": "^1.7.2",
     "express": "^4.19.2",
-    "pino": "^9.0.0",
     "qrcode": "^1.5.3",
     "qrcode-terminal": "^0.12.0"
   }
