@@ -2,7 +2,12 @@ import express from 'express';
 import QRCode from 'qrcode';
 import qrcodeTerminal from 'qrcode-terminal';
 import axios from 'axios';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import * as BaileysModule from '@whiskeysockets/baileys';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Desempaquetador seguro para compatibilidad total en Node.js ES Modules
 const baileysPkg = BaileysModule.default?.default ? BaileysModule.default : (BaileysModule.default || BaileysModule);
@@ -12,14 +17,19 @@ const DisconnectReason = baileysPkg.DisconnectReason || BaileysModule.Disconnect
 const fetchLatestBaileysVersion = baileysPkg.fetchLatestBaileysVersion || BaileysModule.fetchLatestBaileysVersion;
 
 // =========================================================================
-// 1. SERVIDOR WEB INDEPENDIENTE (NUNCA CAE ANTE ERRORES DE BAILEYS)
+// 1. SERVIDOR WEB INDEPENDIENTE
 // =========================================================================
 const app = express();
 const PORT = process.env.PORT || 10000;
 let qrActual = null;
 let estadoConexion = "Iniciando cliente WhatsApp...";
+let sockGlobal = null; // Instancia global compartida para envíos directos
 
-app.get('/', async (req, res) => {
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Ruta Raíz: Estado y Código QR
+app.get('/whatsapp-qr', async (req, res) => {
   if (estadoConexion === "CONECTADO") {
     return res.send(`
       <!DOCTYPE html>
@@ -34,7 +44,7 @@ app.get('/', async (req, res) => {
           <h1 style="color: #22c55e; margin-top: 0; font-size: 24px;">✅ Bot WhatsApp Lavaarte Activo</h1>
           <p style="color: #94a3b8; font-size: 15px;">La sesión de WhatsApp está vinculada y operando de forma continua 24/7 en Render.</p>
           <div style="background: #0f172a; padding: 12px; border-radius: 8px; margin-top: 20px; font-size: 13px; color: #38bdf8;">
-            📡 Escuchando grupo operativo y nómina
+            📡 Escuchando grupo operativo y listo para enviar recibos del mostrador
           </div>
         </div>
       </body>
@@ -98,12 +108,45 @@ app.get('/', async (req, res) => {
   `);
 });
 
+// =========================================================================
+// 2. ENDPOINT API: DESPACHO DIRECTO DE RECIBOS (MOSTRADOR / ORDENES)
+// =========================================================================
+app.post('/api/enviar-recibo', async (req, res) => {
+  const { telefono, mensaje } = req.body;
+
+  if (estadoConexion !== "CONECTADO" || !sockGlobal) {
+    return res.status(503).json({ ok: false, error: 'Cliente de WhatsApp desconectado o en espera de QR' });
+  }
+
+  if (!telefono || !mensaje) {
+    return res.status(400).json({ ok: false, error: 'Faltan campos obligatorios (telefono o mensaje)' });
+  }
+
+  try {
+    const cleanNumber = telefono.replace(/\D/g, '');
+    const jid = `57${cleanNumber}@s.whatsapp.net`;
+
+    console.log(`📤 [DESPACHO ORDEN] Enviando recibo directo a: ${cleanNumber}`);
+    await sockGlobal.sendMessage(jid, { text: mensaje });
+
+    res.json({ ok: true, mensaje: 'Recibo enviado exitosamente' });
+  } catch (err) {
+    console.error('❌ Error despachando comprobante:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Servir la aplicación web en las demás rutas
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🌐 [RENDER OK] Servidor Web activo escuchando en el puerto ${PORT}`);
 });
 
 // =========================================================================
-// 2. CONFIGURACIÓN LOGÍSTICA Y ASISTENCIA LAVAARTE
+// 3. CONFIGURACIÓN LOGÍSTICA Y ASISTENCIA LAVAARTE
 // =========================================================================
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyRY5VDZFm3EgSmeMFec6DyDE5X2-Jsv26KZn8iya7OPbrmoNxz-Z2ByuBnGTXF3zXS/exec';
 const ID_GRUPO_LAVAARTE = '120363044348453055@g.us';
@@ -162,7 +205,7 @@ function extraerTelefono10Digitos(jidStr) {
 }
 
 // =========================================================================
-// 3. NÚCLEO AUTÓNOMO BAILEYS CON RECONEXIÓN SEGURA
+// 4. NÚCLEO AUTÓNOMO BAILEYS CON RECONEXIÓN SEGURA
 // =========================================================================
 let reintentando = false;
 
@@ -172,7 +215,7 @@ async function iniciarBot() {
 
   try {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys_v2');
-    
+
     let version;
     try {
       const v = await fetchLatestBaileysVersion();
@@ -195,6 +238,8 @@ async function iniciarBot() {
       shouldIgnoreJid: () => false
     });
 
+    sockGlobal = sock; // Guardar referencia activa para el endpoint de recibos
+
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', async (update) => {
@@ -211,10 +256,11 @@ async function iniciarBot() {
 
       if (connection === 'close') {
         estadoConexion = "DESCONECTADO";
+        sockGlobal = null;
         const statusCode = lastDisconnect?.error?.output?.statusCode;
         const debeReconectar = statusCode !== DisconnectReason.loggedOut;
         console.log(`🔌 Conexión cerrada (${statusCode}). Reconectando: ${debeReconectar}`);
-        
+
         if (debeReconectar) {
           reintentando = true;
           setTimeout(() => {
@@ -226,24 +272,25 @@ async function iniciarBot() {
         qrActual = null;
         estadoConexion = "CONECTADO";
         console.log('\n======================================================');
-        console.log('🛡️ PUENTE LAVAARTE ACTIVO - NÓMINA + LOGÍSTICA HOTELES');
+        console.log('🛡️ PUENTE LAVAARTE ACTIVO - NÓMINA + LOGÍSTICA + RECIBOS');
         console.log(`📡 Escuchando exclusivamente en: ${ID_GRUPO_LAVAARTE}`);
         console.log('======================================================\n');
       }
     });
 
+    // Escucha de mensajes entrantes (ESTRICTAMENTE AISLADO AL GRUPO)
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       if (type !== 'notify') return;
       const m = messages[0];
       if (!m || !m.message) return;
 
       const jid = m.key.remoteJid;
-      if (jid !== ID_GRUPO_LAVAARTE) return;
+      if (jid !== ID_GRUPO_LAVAARTE) return; // Se descarta cualquier mensaje individual o de clientes
 
       const texto = m.message.conversation || 
                     m.message.extendedTextMessage?.text || 
                     m.message.imageMessage?.caption || "";
-                    
+
       if (!texto.trim()) return;
 
       const textoNorm = normalizarTexto(texto);
