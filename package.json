@@ -1,16 +1,17 @@
 {
-  "name": "bot-lavaarte-whatsapp",
+  "name": "lavaarte-app",
   "version": "1.0.0",
-  "description": "Bot WhatsApp Lavaarte con Baileys Blindado 24/7",
-  "main": "index.js",
   "type": "module",
+  "description": "Lavaarte OS - Sistema Integral + Bot Logística y Nómina",
+  "main": "server.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node server.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.9",
+    "@whiskeysockets/baileys": "^6.7.8",
     "axios": "^1.7.2",
     "express": "^4.19.2",
+    "pino": "^9.2.0",
     "qrcode": "^1.5.3",
     "qrcode-terminal": "^0.12.0"
   }
