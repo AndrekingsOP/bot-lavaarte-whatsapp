@@ -1,4 +1,5 @@
 import express from 'express';
+import cors from 'cors';
 import QRCode from 'qrcode';
 import qrcodeTerminal from 'qrcode-terminal';
 import axios from 'axios';
@@ -9,7 +10,6 @@ import * as BaileysModule from '@whiskeysockets/baileys';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Desempaquetador seguro para compatibilidad total en Node.js ES Modules
 const baileysPkg = BaileysModule.default?.default ? BaileysModule.default : (BaileysModule.default || BaileysModule);
 const makeWASocket = baileysPkg.default || baileysPkg.makeWASocket || BaileysModule.makeWASocket;
 const useMultiFileAuthState = baileysPkg.useMultiFileAuthState || BaileysModule.useMultiFileAuthState;
@@ -23,28 +23,24 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 let qrActual = null;
 let estadoConexion = "Iniciando cliente WhatsApp...";
-let sockGlobal = null; // Instancia global compartida para envíos directos
+let sockGlobal = null;
 
+app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Ruta Raíz: Estado y Código QR
 app.get('/whatsapp-qr', async (req, res) => {
   if (estadoConexion === "CONECTADO") {
     return res.send(`
       <!DOCTYPE html>
       <html>
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>WhatsApp Lavaarte SAS</title>
-      </head>
-      <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; text-align: center; padding: 40px; background: #0f172a; color: white; min-height: 100vh; margin: 0; box-sizing: border-box;">
-        <div style="max-width: 480px; margin: 0 auto; background: #1e293b; padding: 30px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
-          <h1 style="color: #22c55e; margin-top: 0; font-size: 24px;">✅ Bot WhatsApp Lavaarte Activo</h1>
-          <p style="color: #94a3b8; font-size: 15px;">La sesión de WhatsApp está vinculada y operando de forma continua 24/7 en Render.</p>
+      <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>WhatsApp Lavaarte SAS</title></head>
+      <body style="font-family: sans-serif; text-align: center; padding: 40px; background: #0f172a; color: white;">
+        <div style="max-width: 480px; margin: 0 auto; background: #1e293b; padding: 30px; border-radius: 16px;">
+          <h1 style="color: #22c55e; font-size: 24px;">✅ Bot WhatsApp Lavaarte Activo</h1>
+          <p style="color: #94a3b8; font-size: 15px;">Operando 24/7 en Render.</p>
           <div style="background: #0f172a; padding: 12px; border-radius: 8px; margin-top: 20px; font-size: 13px; color: #38bdf8;">
-            📡 Escuchando grupo operativo y listo para enviar recibos del mostrador
+            📡 Escuchando grupo operativo y listo para despachar recibos a clientes
           </div>
         </div>
       </body>
@@ -58,155 +54,97 @@ app.get('/whatsapp-qr', async (req, res) => {
       return res.send(`
         <!DOCTYPE html>
         <html>
-        <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>Escanear QR - WhatsApp Lavaarte</title>
-        </head>
-        <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; text-align: center; padding: 25px; background: #0f172a; color: white; min-height: 100vh; margin: 0; box-sizing: border-box;">
-          <div style="max-width: 450px; margin: 0 auto; background: #1e293b; padding: 25px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
-            <h2 style="color: #38bdf8; margin-top: 0; font-size: 22px;">📱 Escanea el QR de Lavaarte</h2>
-            <p style="color: #94a3b8; font-size: 14px; margin-bottom: 20px;">
-              Abre WhatsApp en tu celular &gt; <b>Dispositivos vinculados</b> &gt; <b>Vincular dispositivo</b>:
-            </p>
+        <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Escanear QR</title></head>
+        <body style="font-family: sans-serif; text-align: center; padding: 25px; background: #0f172a; color: white;">
+          <div style="max-width: 450px; margin: 0 auto; background: #1e293b; padding: 25px; border-radius: 16px;">
+            <h2 style="color: #38bdf8; font-size: 22px;">📱 Escanea el QR de Lavaarte</h2>
+            <p style="color: #94a3b8; font-size: 14px;">Abre WhatsApp > Dispositivos vinculados > Vincular dispositivo:</p>
             <div style="background: white; display: inline-block; padding: 16px; border-radius: 14px;">
-              <img src="${qrDataUrl}" style="width: 260px; height: 260px; display: block;" alt="Código QR WhatsApp" />
+              <img src="${qrDataUrl}" style="width: 260px; height: 260px; display: block;" />
             </div>
-            <p style="color: #64748b; font-size: 12px; margin-top: 20px;">
-              ⏳ Esta pantalla se actualiza sola cada 15 segundos con el código más reciente.
-            </p>
+            <p style="color: #64748b; font-size: 12px; margin-top: 20px;">Actualiza cada 15 segundos automáticamente.</p>
           </div>
-          <script>
-            setTimeout(function() { window.location.reload(); }, 15000);
-          </script>
+          <script>setTimeout(() => window.location.reload(), 15000);</script>
         </body>
         </html>
       `);
     } catch (err) {
-      return res.send("Error generando código QR en pantalla: " + err.message);
+      return res.send("Error: " + err.message);
     }
   }
 
   res.send(`
     <!DOCTYPE html>
     <html>
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Conectando WhatsApp...</title>
-    </head>
-    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; text-align: center; padding: 40px; background: #0f172a; color: white; min-height: 100vh; margin: 0;">
-      <div style="max-width: 450px; margin: 0 auto; background: #1e293b; padding: 30px; border-radius: 16px;">
-        <h2 style="color: #facc15; margin-top: 0;">⏳ Iniciando cliente WhatsApp...</h2>
-        <p style="color: #94a3b8;">Generando llaves y solicitando QR a WhatsApp...</p>
-      </div>
-      <script>
-        setTimeout(function() { window.location.reload(); }, 5000);
-      </script>
+    <head><meta charset="UTF-8"><title>Conectando...</title></head>
+    <body style="font-family: sans-serif; text-align: center; padding: 40px; background: #0f172a; color: white;">
+      <h2>⏳ Iniciando cliente WhatsApp...</h2>
+      <script>setTimeout(() => window.location.reload(), 5000);</script>
     </body>
     </html>
   `);
 });
 
-// =========================================================================
-// 2. ENDPOINT API: DESPACHO DIRECTO DE RECIBOS (MOSTRADOR / ORDENES)
-// =========================================================================
+// Endpoint para recibir la orden desde el Software Web y despacharla al cliente
 app.post('/api/enviar-recibo', async (req, res) => {
   const { telefono, mensaje } = req.body;
 
   if (estadoConexion !== "CONECTADO" || !sockGlobal) {
-    return res.status(503).json({ ok: false, error: 'Cliente de WhatsApp desconectado o en espera de QR' });
+    return res.status(503).json({ ok: false, error: 'WhatsApp desconectado en el Bot' });
   }
 
   if (!telefono || !mensaje) {
-    return res.status(400).json({ ok: false, error: 'Faltan campos obligatorios (telefono o mensaje)' });
+    return res.status(400).json({ ok: false, error: 'Falta teléfono o mensaje' });
   }
 
   try {
     const cleanNumber = telefono.replace(/\D/g, '');
     const jid = `57${cleanNumber}@s.whatsapp.net`;
-
-    console.log(`📤 [DESPACHO ORDEN] Enviando recibo directo a: ${cleanNumber}`);
+    console.log(`📤 [RECIBO CLIENTE] Enviando comprobante directo a: ${cleanNumber}`);
     await sockGlobal.sendMessage(jid, { text: mensaje });
-
-    res.json({ ok: true, mensaje: 'Recibo enviado exitosamente' });
+    res.json({ ok: true, mensaje: 'Comprobante enviado exitosamente' });
   } catch (err) {
-    console.error('❌ Error despachando comprobante:', err.message);
+    console.error('❌ Error enviando mensaje a cliente:', err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
 
-// Servir la aplicación web en las demás rutas
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🌐 [RENDER OK] Servidor Web activo escuchando en el puerto ${PORT}`);
+  console.log(`🌐 [RENDER OK] Servidor Bot activo en el puerto ${PORT}`);
 });
 
 // =========================================================================
-// 3. CONFIGURACIÓN LOGÍSTICA Y ASISTENCIA LAVAARTE
+// 2. CONFIGURACIÓN LOGÍSTICA Y ASISTENCIA (GRUPO OPERATIVO)
 // =========================================================================
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyRY5VDZFm3EgSmeMFec6DyDE5X2-Jsv26KZn8iya7OPbrmoNxz-Z2ByuBnGTXF3zXS/exec';
 const ID_GRUPO_LAVAARTE = '120363044348453055@g.us';
 
 const HOTELES_CANAL = {
-  'ruta oriente': 'RUTA ORIENTE',
-  'ruta norte': 'RUTA NORTE',
-  'wyndham': 'WYNDHAM',
-  'whymdam': 'WYNDHAM',
-  'whymd': 'WYNDHAM',
-  'wyndam': 'WYNDHAM',
-  'windham': 'WYNDHAM',
-  'whindham': 'WYNDHAM',
-  'whynham': 'WYNDHAM',
-  'whimdam': 'WYNDHAM',
-  'wynd': 'WYNDHAM',
-  'whym': 'WYNDHAM',
-  'oceania': 'OCEANIA',
-  'oceana': 'OCEANIA',
-  'oceani': 'OCEANIA',
-  'hilton': 'HILTON',
-  'hampton': 'HAMPTON',
-  'fontana': 'FONTANA',
-  'dann': 'DANN',
-  'suite': 'SUITE',
-  'virrey': 'VIRREY',
-  'andes plaza': 'ANDES PLAZA',
-  'andes': 'ANDES PLAZA',
-  'bogota plaza': 'BOGOTÁ PLAZA',
-  'bogota p': 'BOGOTÁ PLAZA',
-  'almacen': 'ALMACÉN CENTRAL'
+  'ruta oriente': 'RUTA ORIENTE', 'ruta norte': 'RUTA NORTE', 'wyndham': 'WYNDHAM', 'whymdam': 'WYNDHAM',
+  'whymd': 'WYNDHAM', 'wyndam': 'WYNDHAM', 'windham': 'WYNDHAM', 'whindham': 'WYNDHAM', 'whynham': 'WYNDHAM',
+  'whimdam': 'WYNDHAM', 'wynd': 'WYNDHAM', 'whym': 'WYNDHAM', 'oceania': 'OCEANIA', 'oceana': 'OCEANIA',
+  'oceani': 'OCEANIA', 'hilton': 'HILTON', 'hampton': 'HAMPTON', 'fontana': 'FONTANA', 'dann': 'DANN',
+  'suite': 'SUITE', 'virrey': 'VIRREY', 'andes plaza': 'ANDES PLAZA', 'andes': 'ANDES PLAZA',
+  'bogota plaza': 'BOGOTÁ PLAZA', 'bogota p': 'BOGOTÁ PLAZA', 'almacen': 'ALMACÉN CENTRAL'
 };
 
-process.on('uncaughtException', (err) => {
-  console.log('⚠️ [PREVENCIÓN] Error mitigado:', err.message);
-});
-
-process.on('unhandledRejection', (reason) => {
-  console.log('⚠️ [PREVENCIÓN] Rechazo mitigado:', reason);
-});
+process.on('uncaughtException', (err) => console.log('⚠️ [PREVENCIÓN]:', err.message));
+process.on('unhandledRejection', (reason) => console.log('⚠️ [PREVENCIÓN]:', reason));
 
 function normalizarTexto(txt) {
-  if (!txt) return "";
-  return txt.toString().toLowerCase()
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    .trim();
+  return txt ? txt.toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim() : "";
 }
 
 function extraerTelefono10Digitos(jidStr) {
   if (!jidStr) return "";
   let limpio = jidStr.split('@')[0].split(':')[0].replace(/\D/g, '');
-  if (limpio.length > 10) {
-    return limpio.slice(-10);
-  }
-  return limpio;
+  return limpio.length > 10 ? limpio.slice(-10) : limpio;
 }
 
-// =========================================================================
-// 4. NÚCLEO AUTÓNOMO BAILEYS CON RECONEXIÓN SEGURA
-// =========================================================================
 let reintentando = false;
 
 async function iniciarBot() {
@@ -238,69 +176,44 @@ async function iniciarBot() {
       shouldIgnoreJid: () => false
     });
 
-    sockGlobal = sock; // Guardar referencia activa para el endpoint de recibos
+    sockGlobal = sock;
 
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
-
       if (qr) {
         qrActual = qr;
         estadoConexion = "QR_PENDIENTE";
-        console.log('\n📲 [CÓDIGO QR DISPONIBLE] Escanéalo en la consola o abre la URL web de Render:');
-        try {
-          qrcodeTerminal.generate(qr, { small: true });
-        } catch (e) {}
+        try { qrcodeTerminal.generate(qr, { small: true }); } catch (e) {}
       }
-
       if (connection === 'close') {
         estadoConexion = "DESCONECTADO";
         sockGlobal = null;
         const statusCode = lastDisconnect?.error?.output?.statusCode;
         const debeReconectar = statusCode !== DisconnectReason.loggedOut;
-        console.log(`🔌 Conexión cerrada (${statusCode}). Reconectando: ${debeReconectar}`);
-
         if (debeReconectar) {
           reintentando = true;
-          setTimeout(() => {
-            reintentando = false;
-            iniciarBot();
-          }, 5000);
+          setTimeout(() => { reintentando = false; iniciarBot(); }, 5000);
         }
       } else if (connection === 'open') {
         qrActual = null;
         estadoConexion = "CONECTADO";
-        console.log('\n======================================================');
         console.log('🛡️ PUENTE LAVAARTE ACTIVO - NÓMINA + LOGÍSTICA + RECIBOS');
-        console.log(`📡 Escuchando exclusivamente en: ${ID_GRUPO_LAVAARTE}`);
-        console.log('======================================================\n');
       }
     });
 
-    // Escucha de mensajes entrantes (ESTRICTAMENTE AISLADO AL GRUPO)
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       if (type !== 'notify') return;
       const m = messages[0];
-      if (!m || !m.message) return;
+      if (!m || !m.message || m.key.remoteJid !== ID_GRUPO_LAVAARTE) return;
 
-      const jid = m.key.remoteJid;
-      if (jid !== ID_GRUPO_LAVAARTE) return; // Se descarta cualquier mensaje individual o de clientes
-
-      const texto = m.message.conversation || 
-                    m.message.extendedTextMessage?.text || 
-                    m.message.imageMessage?.caption || "";
-
+      const texto = m.message.conversation || m.message.extendedTextMessage?.text || m.message.imageMessage?.caption || "";
       if (!texto.trim()) return;
 
       const textoNorm = normalizarTexto(texto);
+      if (['almuerzo', 'almorzar', 'refrigerio', 'organizar', 'cerrar caja', 'entregarla'].some(p => textoNorm.includes(p))) return;
 
-      // Filtro de exclusión total
-      if (textoNorm.includes('almuerzo') || textoNorm.includes('almorzar') || textoNorm.includes('refrigerio') || textoNorm.includes('organizar') || textoNorm.includes('cerrar caja') || textoNorm.includes('entregarla')) {
-        return;
-      }
-
-      // Extracción de hora Bogotá
       const ahora = new Date();
       let horaCalculada = ahora.toLocaleTimeString('en-US', { timeZone: 'America/Bogota', hour12: true });
       const fechaCalculada = ahora.toLocaleDateString('es-CO', { timeZone: 'America/Bogota', day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -327,7 +240,6 @@ async function iniciarBot() {
           const hh12 = hh % 12 === 0 ? 12 : hh % 12;
           const hhStr = hh12 < 10 ? `0${hh12}` : `${hh12}`;
           horaCalculada = `${hhStr}:${mm}:00 ${ampm}`;
-
           textoSinHora = textoSinHora.replace(matchHora[0], ' ');
         }
       }
@@ -336,7 +248,6 @@ async function iniciarBot() {
       let remitenteTel = extraerTelefono10Digitos(remitenteRaw);
       const pushName = (m.pushName || "").trim() || "Colaborador";
 
-      // Canal 1: Logística de Hoteles
       let hotelDetectado = null;
       for (const [clave, nombreOficial] of Object.entries(HOTELES_CANAL)) {
         if (textoNorm.includes(clave)) {
@@ -348,92 +259,51 @@ async function iniciarBot() {
       if (hotelDetectado) {
         const esSalida = ['salida', 'saliendo', 'me voy', 'despachado', 'fin', 'termino', 'terminamos', 'finaliza', 'finalizada', 'chao', 'listo hotel'].some(p => textoNorm.includes(p));
         const tipoEvento = esSalida ? "SALIDA" : "LLEGADA";
-
-        console.log(`🏨 [LOGÍSTICA] Hotel: ${hotelDetectado} | ${tipoEvento} | Hora: ${horaCalculada} | Por: ${pushName} (${remitenteTel})`);
-
         try {
           await axios.post(APPS_SCRIPT_URL, {
-            canal: "LOGISTICA_HOTELES",
-            hotel: hotelDetectado,
-            tipo: tipoEvento,
-            hora: horaCalculada,
-            fecha: fechaCalculada,
-            telefono: remitenteTel,
-            push_name: pushName,
-            mensaje_raw: texto
+            canal: "LOGISTICA_HOTELES", hotel: hotelDetectado, tipo: tipoEvento,
+            hora: horaCalculada, fecha: fechaCalculada, telefono: remitenteTel,
+            push_name: pushName, mensaje_raw: texto
           }, { timeout: 20000 });
-        } catch (err) {
-          console.error('❌ Error enviando logística:', err.message);
-        }
+        } catch (err) { console.error('Error logística:', err.message); }
         return;
       }
 
-      // Canal 2: Asistencia y Nómina
-      const palabrasEntrada = [
-        'ingreso', 'entrada', 'llegue', 'llego', 'buenos dias', 'buen dia', 
-        'iniciando', 'inicio turno', 'presente', 'reporto entrada', 'reporte entrada',
-        'hola', 'buenas', 'iniciamos', 'aqui planta', 'llegando', 'planta'
-      ];
-      const palabrasSalida = [
-        'salida', 'me voy', 'chao', 'hasta manana', 'fin turno', 'termino', 
-        'saliendo', 'salgo', 'termine', 'reporto salida', 'reporte salida', 'hasta luego'
-      ];
+      const palabrasEntrada = ['ingreso', 'entrada', 'llegue', 'llego', 'buenos dias', 'buen dia', 'iniciando', 'inicio turno', 'presente', 'reporto entrada', 'reporte entrada', 'hola', 'buenas', 'iniciamos', 'aqui planta', 'llegando', 'planta'];
+      const palabrasSalida = ['salida', 'me voy', 'chao', 'hasta manana', 'fin turno', 'termino', 'saliendo', 'salgo', 'termine', 'reporto salida', 'reporte salida', 'hasta luego'];
 
       const esEntrada = palabrasEntrada.some(p => textoNorm.includes(p));
       const esSalida = palabrasSalida.some(p => textoNorm.includes(p));
 
-      if (!esEntrada && !esSalida && !textoNorm.includes('codigo') && !textoNorm.includes('cod')) {
-        return;
-      }
+      if (!esEntrada && !esSalida && !textoNorm.includes('codigo') && !textoNorm.includes('cod')) return;
 
       let tipoMov = esSalida ? "SALIDA" : "INGRESO";
-
       let codigoManual = "";
       const matchCodExplícito = textoSinHora.match(/\b(?:codigo|cod|id)\s*[:#-]?\s*(\d{1,3})\b/);
-      if (matchCodExplícito) {
-        codigoManual = matchCodExplícito[1];
-      }
+      if (matchCodExplícito) codigoManual = matchCodExplícito[1];
 
       let palabrasRestantes = textoSinHora
         .replace(/buenos dias|buen dia|reporto entrada|reporto salida|reporte entrada|reporte salida|ingreso|entrada|salida|hora|de|a las|am|pm|hola|buenas|presente|iniciando|inicio|turno|codigo|cod|id/g, ' ')
         .replace(/[^a-z0-9\s]/g, ' ')
-        .trim()
-        .split(/\s+/)
+        .trim().split(/\s+/)
         .filter(w => w.length >= 3 && !['hoy', 'tarde', 'temprano', 'ya', 'listo', 'aqui', 'planta', 'para'].includes(w));
 
-      let nombreObjetivo = "";
-      if (palabrasRestantes.length > 0) {
-        nombreObjetivo = palabrasRestantes[0].toUpperCase();
-      }
-
-      const obs = `Marcaje WhatsApp (${pushName}) | "${texto}"`;
-      console.log(`👤 [ASISTENCIA] ${tipoMov} | Hora: ${horaCalculada} | Cel: ${remitenteTel} | PushName: '${pushName}' | NombreMsg: '${nombreObjetivo}' | Cod: '${codigoManual}'`);
+      let nombreObjetivo = palabrasRestantes.length > 0 ? palabrasRestantes[0].toUpperCase() : "";
 
       try {
-        const res = await axios.post(APPS_SCRIPT_URL, {
-          canal: "NOMINA",
-          telefono: remitenteTel,
-          codigo_manual: codigoManual,
-          nombre: nombreObjetivo,
-          push_name: pushName,
-          tipo: tipoMov,
-          hora: horaCalculada,
-          fecha: fechaCalculada,
-          observaciones: obs
+        await axios.post(APPS_SCRIPT_URL, {
+          canal: "NOMINA", telefono: remitenteTel, codigo_manual: codigoManual,
+          nombre: nombreObjetivo, push_name: pushName, tipo: tipoMov,
+          hora: horaCalculada, fecha: fechaCalculada,
+          observaciones: `Marcaje WhatsApp (${pushName}) | "${texto}"`
         }, { timeout: 20000 });
-        console.log('✅ Respuesta Apps Script Nómina:', res.data);
-      } catch (err) {
-        console.error('❌ Error enviando nómina:', err.message);
-      }
+      } catch (err) { console.error('Error nómina:', err.message); }
     });
 
   } catch (errGlobal) {
-    console.error('⚠️ [ERROR INICIALIZACIÓN BAILEYS]:', errGlobal.message);
+    console.error('Error Baileys:', errGlobal.message);
     reintentando = true;
-    setTimeout(() => {
-      reintentando = false;
-      iniciarBot();
-    }, 6000);
+    setTimeout(() => { reintentando = false; iniciarBot(); }, 6000);
   }
 }
 
