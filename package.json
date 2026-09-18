@@ -1,11 +1,11 @@
 {
-  "name": "lavaarte-app",
+  "name": "bot-lavaarte-whatsapp",
   "version": "1.0.0",
   "type": "module",
-  "description": "Lavaarte OS - Sistema Integral + Bot Logística y Nómina",
-  "main": "server.js",
+  "description": "Bot WhatsApp Lavaarte - Logística, Nómina y Despacho de Recibos",
+  "main": "index.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node index.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.8",
