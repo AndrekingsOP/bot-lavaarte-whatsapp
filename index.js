@@ -21,7 +21,22 @@ let estadoConexion = "Iniciando cliente WhatsApp...";
 let sockGlobal = null;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '256kb' }));
+
+// Estado de salud usado por LAVAARTE OS para distinguir una sesión lista de una caída.
+app.get('/api/health', (_req, res) => {
+  const connected = estadoConexion === 'CONECTADO' && !!sockGlobal;
+  res.status(200).json({ ok: true, connected, status: estadoConexion, service: 'LAVAARTE WhatsApp Bridge' });
+});
+
+function normalizarTelefonoColombia(raw) {
+  let digits = String(raw || '').replace(/\D/g, '');
+  // Acepta tanto celular local de 10 dígitos como formato internacional 57 + 10.
+  if (digits.startsWith('57') && digits.length >= 12) digits = digits.slice(-10);
+  else if (digits.length > 10) digits = digits.slice(-10);
+  if (digits.length !== 10) throw new Error('El celular debe contener 10 dígitos de Colombia o incluir el prefijo +57.');
+  return { local: digits, jid: `57${digits}@s.whatsapp.net` };
+}
 
 // Responde en la raíz '/' y en '/whatsapp-qr'
 app.get(['/', '/whatsapp-qr'], async (req, res) => {
@@ -105,27 +120,24 @@ app.get(['/', '/whatsapp-qr'], async (req, res) => {
 
 // Endpoint para recibir la orden desde el Software Web y enviarla al cliente
 app.post('/api/enviar-recibo', async (req, res) => {
-  const { telefono, mensaje } = req.body;
+  const { telefono, mensaje } = req.body || {};
 
-  if (estadoConexion !== "CONECTADO" || !sockGlobal) {
-    return res.status(503).json({ ok: false, error: 'Bot no conectado a WhatsApp' });
+  if (estadoConexion !== 'CONECTADO' || !sockGlobal) {
+    return res.status(503).json({ ok: false, error: 'Bot no conectado a WhatsApp', connected: false });
   }
-
-  if (!telefono || !mensaje) {
+  if (!telefono || typeof mensaje !== 'string' || !mensaje.trim()) {
     return res.status(400).json({ ok: false, error: 'Falta teléfono o mensaje' });
   }
 
   try {
-    const cleanNumber = telefono.replace(/\D/g, '');
-    const jid = `57${cleanNumber}@s.whatsapp.net`;
-
-    console.log(`📤 [RECIBO MOSTRADOR] Enviando comprobante a: ${cleanNumber}`);
-    await sockGlobal.sendMessage(jid, { text: mensaje });
-
-    res.json({ ok: true, mensaje: 'Comprobante enviado al cliente' });
+    const { local, jid } = normalizarTelefonoColombia(telefono);
+    console.log(`📤 [RECIBO MOSTRADOR] Envío automático solicitado al celular terminado en ${local.slice(-4)}`);
+    const envio = await sockGlobal.sendMessage(jid, { text: mensaje });
+    if (!envio || !envio.key) throw new Error('WhatsApp no confirmó el identificador del mensaje enviado.');
+    return res.json({ ok: true, connected: true, messageId: envio.key.id || null, mensaje: 'Comprobante enviado automáticamente al cliente' });
   } catch (err) {
     console.error('❌ Error despachando comprobante:', err.message);
-    res.status(500).json({ ok: false, error: err.message });
+    return res.status(500).json({ ok: false, connected: estadoConexion === 'CONECTADO', error: err.message });
   }
 });
 
